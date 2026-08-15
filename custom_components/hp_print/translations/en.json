@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "host": "Printer IP Address",
+          "name": "Device Name",
+          "scan_interval": "Polling Interval (seconds)",
+          "daylist_days": "Daily Record Retention (days)"
+        },
+        "description": "Enter the HP printer's IP address. The integration will fetch ProductUsageDyn.xml via HTTPS and create sensor entities.",
+        "title": "Add HP Printer"
+      },
+      "reconfigure": {
+        "data": {
+          "host": "Printer IP Address",
+          "name": "Device Name",
+          "scan_interval": "Polling Interval (seconds)",
+          "daylist_days": "Daily Record Retention (days)"
+        },
+        "description": "Modify the HP printer connection settings.",
+        "title": "Configure HP Printer"
+      }
+    },
+    "abort": {
+      "already_configured": "This printer is already configured.",
+      "reconfigure_successful": "Settings updated."
+    }
+  }
+}

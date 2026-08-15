@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "host": "打印机 IP 地址",
+          "name": "设备名称",
+          "scan_interval": "轮询间隔 (秒)",
+          "daylist_days": "每日记录保留天数"
+        },
+        "description": "输入惠普打印机的 IP 地址，集成将以 HTTPS 方式获取 ProductUsageDyn.xml 数据并生成传感器。",
+        "title": "添加惠普打印机"
+      },
+      "reconfigure": {
+        "data": {
+          "host": "打印机 IP 地址",
+          "name": "设备名称",
+          "scan_interval": "轮询间隔 (秒)",
+          "daylist_days": "每日记录保留天数"
+        },
+        "description": "修改惠普打印机的连接设置。",
+        "title": "设置惠普打印机"
+      }
+    },
+    "abort": {
+      "already_configured": "该打印机已配置。",
+      "reconfigure_successful": "设置已更新。"
+    }
+  }
+}
