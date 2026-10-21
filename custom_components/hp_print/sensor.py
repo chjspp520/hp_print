@@ -10,6 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from . import AllEntitiesSensor
 from .const import (
     ALL_SUBUNIT_SENSORS,
     CONF_DAYLIST_DAYS,
@@ -140,6 +141,9 @@ async def async_setup_entry(
             coordinator=coordinator, entry=entry,
         )
     )
+
+    # Aggregate sensor listing every entity of this device
+    entities.append(AllEntitiesSensor(coordinator=coordinator, entry=entry))
 
     async_add_entities(entities)
 

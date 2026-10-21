@@ -1,10 +1,11 @@
 {
   "domain": "hp_print",
   "name": "HP Printer",
-  "codeowners": ["@homeassistant"],
+  "codeowners": ["@chjspp520"],
   "config_flow": true,
-  "documentation": "",
+  "documentation": "https://github.com/chjspp520/hp_print",
+  "issue_tracker": "https://github.com/chjspp520/hp_print/issues",
   "iot_class": "local_polling",
   "requirements": [],
-  "version": "1.0.0"
+  "version": "1.0.1"
 }

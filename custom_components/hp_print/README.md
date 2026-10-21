@@ -1,5 +1,8 @@
 # HP Printer Monitor（惠普打印机监控）
 
+[![GitHub](https://img.shields.io/badge/GitHub-chjspp520%2Fhp__print-blue)](https://github.com/chjspp520/hp_print)
+[![Version](https://img.shields.io/badge/version-1.0.1-green)](https://github.com/chjspp520/hp_print)
+
 这是一个 Home Assistant 自定义集成，用于监控支持 EWS（嵌入式 Web 服务器）和 SNMP 的惠普打印机，提供墨量、打印/扫描/复印/传真页数、卡纸事件、设备状态等丰富指标，并自动按日/月/年统计用量、推断今日打印作业。
 
 ## 功能特性
@@ -8,8 +11,9 @@
 - **页数统计**：覆盖打印、扫描、复印、传真四大应用场景，细分黑白/彩色、单面/双面、ADF 扫描/平台扫描、网络/无线打印等维度。
 - **设备状态监控**：通过 SNMP 获取设备状态、打印机状态与错误状态。
 - **事件日志**：读取打印机事件日志，将事件码映射为可读中文描述（卡纸、墨盒故障、缺纸等），并提供总条数与逐条明细。
-- **用量统计**：自动生成 **每日/每月/每年** 用量列表，含累计总量与墨水信息（`lik` 属性）；首次配置时会从 HA 历史记录**自动回填**历史数据。
+- **用量统计**：自动生成 **每日/每月/每年** 用量列表，涵盖打印/扫描/复印/传真/卡纸，`daylist` 另含四色墨水剩余量；`total` 直接取自打印机累计值；首次配置时会从 HA 历史记录**自动回填**历史数据。
 - **今日作业记录**：根据累计计数器的增减推断今日发生的打印/扫描/复印/传真作业（含时长与页数），并精确记录当日卡纸事件（带真实时间戳）。
+- **全部实体汇总**：将本设备下所有实体的 `entity_id`、`name`、`icon`、`state` 汇总为一个传感器的属性，便于外部系统一次性获取。
 - **数据持久化**：用量统计与作业记录均保存到 `.storage/` 下的 JSON 文件，HA 重启不丢失。
 - **手动按钮**：提供"补齐历史用量"与"重新加载用量数据"两个按钮，方便回填或重新读取存储数据。
 
@@ -129,13 +133,92 @@ ha_data_store 可将本集成生成的传感器数据（页数、墨量、用量
 
 | 传感器 | 说明 |
 | --- | --- |
-| 用量统计 | state = 今日累计总量；attributes 含 `daylist`（每日）、`monthlist`（每月）、`yearlist`（每年）、`total`（各类累计总量）、`lik`（墨水信息） |
+| 用量统计 | state = `print` + `scan` + `copy` + `fax` + `jam_printer` 的累计合计值；attributes 含 `daylist` / `monthlist` / `yearlist` / `total` / `lik` |
+
+属性结构说明：
+
+- **`daylist`**：每日增量列表，最新在前。每项含 `day`、`print`、`scan`、`copy`、`fax`、`jam_printer`，以及四色墨水剩余量 `ink_black` / `ink_cyan` / `ink_magenta` / `ink_yellow`（带 `%` 单位，为该日快照值）。
+- **`monthlist`**：每月增量列表，最新在前。每项含 `month`、`print`、`scan`、`copy`、`fax`、`jam_printer`（不含墨水字段）。
+- **`yearlist`**：每年增量列表，最新在前。每项含 `year`、`print`、`scan`、`copy`、`fax`、`jam_printer`（不含墨水字段）。
+- **`total`**：直接取自打印机上报的累计值，不做列表合计；四色墨水剩余量带 `%` 单位。
+- **`lik`**：四色墨水明细，每项含 `color`、`remaining`（`%`）、`replace_count`（`次`）、`total_usage`（`ml`）、`status`。
+
+示例：
+
+```yaml
+state: 9926
+daylist:
+  - day: "2026-10-21"
+    print: 2
+    scan: 0
+    copy: 0
+    fax: 0
+    jam_printer: 0
+    ink_black: "75%"
+    ink_cyan: "68%"
+    ink_magenta: "70%"
+    ink_yellow: "72%"
+monthlist:
+  - month: 2026-10
+    print: 35
+    scan: 4
+    copy: 0
+    fax: 0
+    jam_printer: 1
+yearlist:
+  - year: "2026"
+    print: 8757
+    scan: 1015
+    copy: 154
+    fax: 0
+    jam_printer: 3
+total:
+  print: 8757
+  scan: 1015
+  copy: 154
+  fax: 0
+  jam_printer: 3
+  ink_black: "75%"
+  ink_cyan: "68%"
+  ink_magenta: "70%"
+  ink_yellow: "72%"
+lik:
+  - color: black
+    remaining: "75%"
+    replace_count: "3次"
+    total_usage: "42ml"
+    status: OK
+```
 
 #### 今日作业记录传感器
 
 | 传感器 | 说明 |
 | --- | --- |
 | 今日作业记录 | state = 今日作业总条数；attributes 含 `print`/`scan`/`copy`/`fax`（作业列表，含时间区间、页数、时长）与 `jam_printer`（卡纸事件） |
+
+#### 全部实体传感器
+
+| 传感器 | 说明 |
+| --- | --- |
+| 全部实体 | state = 本设备下实体数量；attributes 含 `count` 与 `entities` 列表，每项包含 `entity_id`、`name`、`icon`、`state` |
+
+示例：
+
+```yaml
+state: 42
+count: 42
+entities:
+  - entity_id: sensor.hp_printer_cai_se_da_yin_ye_shu
+    name: 彩色打印页数
+    icon: mdi:printer
+    state: "8757"
+  - entity_id: sensor.hp_printer_mo_shui_sheng_yu
+    name: 墨水剩余
+    icon: mdi:water-percent
+    state: "75"
+```
+
+> 该传感器会随每次数据刷新重新读取设备下所有实体的最新状态，方便外部系统（如 ha_data_store）批量采集。
 
 ### 按钮（Button）
 
@@ -197,7 +280,7 @@ ha_data_store 可将本集成生成的传感器数据（页数、墨量、用量
 
 ```
 hp_print/
-├── __init__.py        # 集成入口，协调器初始化与配置更新监听
+├── __init__.py        # 集成入口、协调器初始化、配置更新监听、全部实体传感器
 ├── manifest.json      # 集成元数据
 ├── const.py           # 常量、传感器定义、事件码映射
 ├── config_flow.py     # 配置流程（添加/重新配置）
@@ -211,3 +294,20 @@ hp_print/
 ├── translations/      # 多语言翻译（en / zh-Hans）
 └── brand/             # 品牌图标
 ```
+
+## 更新日志
+
+### 1.0.1
+
+- 新增「全部实体」传感器，汇总本设备所有实体的 `entity_id`、`name`、`icon`、`state`。
+- 「用量统计」state 改为 `print` + `scan` + `copy` + `fax` + `jam_printer` 的合计值。
+- 「用量统计」`daylist` 增加四色墨水剩余量（带 `%` 单位）与卡纸次数。
+- 新增墨水信息属性 `lik`，各字段带单位（`%` / `次` / `ml`）。
+- 优化历史回填逻辑：修正实体 ID 解析、修正阻塞调用、回填时跳过当天并由实时计算接管。
+- 更新仓库信息（codeowners / documentation / issue_tracker）。
+
+## 反馈与支持
+
+- 仓库地址：https://github.com/chjspp520/hp_print
+- 问题反馈：https://github.com/chjspp520/hp_print/issues
+- 维护者：[@chjspp520](https://github.com/chjspp520)
