@@ -1,7 +1,7 @@
 # HP Printer Monitor（惠普打印机监控）
 
 [![GitHub](https://img.shields.io/badge/GitHub-chjspp520%2Fhp__print-blue)](https://github.com/chjspp520/hp_print)
-[![Version](https://img.shields.io/badge/version-1.0.1-green)](https://github.com/chjspp520/hp_print)
+[![Version](https://img.shields.io/badge/version-1.0.2-green)](https://github.com/chjspp520/hp_print)
 
 这是一个 Home Assistant 自定义集成，用于监控支持 EWS（嵌入式 Web 服务器）和 SNMP 的惠普打印机，提供墨量、打印/扫描/复印/传真页数、卡纸事件、设备状态等丰富指标，并自动按日/月/年统计用量、推断今日打印作业。
 
@@ -296,6 +296,11 @@ hp_print/
 ```
 
 ## 更新日志
+
+### 1.0.2
+
+- 修复「用量统计」中日/月/年条目重复的问题：写入改为按周期键更新（upsert），并在加载存储时自动去重排序，已有脏数据会自动修复。
+- 适配新版设备注册表 API，改用 `async_get_device_by_identifier`，消除 `async_get_device` 弃用警告（保留对旧版 HA 的回退支持）。
 
 ### 1.0.1
 

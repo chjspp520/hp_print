@@ -22,6 +22,31 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SENSOR]
 
 
+def _get_device_by_identifier(
+    device_registry: dr.DeviceRegistry,
+    identifier: tuple[str, str],
+    config_entry_id: str,
+) -> dr.DeviceEntry | None:
+    """Look up a device by a single (domain, id) identifier within a config entry.
+
+    ``async_get_device()`` is deprecated because identifiers are no longer
+    unique across config entries; prefer ``async_get_device_by_identifier()``,
+    which requires the config entry id as its second argument.
+    The old call is kept as a fallback for older Home Assistant versions.
+    """
+    getter = getattr(device_registry, "async_get_device_by_identifier", None)
+    if getter is not None:
+        try:
+            return getter(identifier, config_entry_id)
+        except TypeError:
+            # Older signature that took only the identifier
+            try:
+                return getter(identifier)
+            except TypeError:
+                pass
+    return device_registry.async_get_device(identifiers={identifier})
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up HP Printer from a config entry."""
     host = entry.data[CONF_HOST]
@@ -94,11 +119,20 @@ class AllEntitiesSensor(CoordinatorEntity, SensorEntity):
 
     def _refresh_entities(self) -> None:
         """Rebuild the entity list from the device/entity registry."""
+        if self.hass is None:
+            return
+        try:
+            self._collect_entities()
+        except Exception:
+            _LOGGER.exception("AllEntitiesSensor: failed to collect entities")
+
+    def _collect_entities(self) -> None:
+        """Collect entity details into ``self._entities``."""
         device_registry = dr.async_get(self.hass)
         entity_registry = er.async_get(self.hass)
 
-        device = device_registry.async_get_device(
-            identifiers={(DOMAIN, self._entry_id)}
+        device = _get_device_by_identifier(
+            device_registry, (DOMAIN, self._entry_id), self._entry_id
         )
         if device is None:
             self._entities = []
@@ -136,11 +170,13 @@ class AllEntitiesSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> StateType:
         """State = number of entities."""
+        self._refresh_entities()
         return len(self._entities)
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        """Expose the entity list."""
+        """Expose the entity list, refreshed on each read."""
+        self._refresh_entities()
         return {
             "count": len(self._entities),
             "entities": self._entities,

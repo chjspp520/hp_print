@@ -45,7 +45,11 @@ class PeriodUsageStore:
         self._store = Store[dict](hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry_id}")
 
     async def load(self) -> dict:
-        """Load persisted data or return empty defaults."""
+        """Load persisted data or return empty defaults.
+
+        Duplicate day/month/year entries (which older versions could write)
+        are collapsed here so the stored file repairs itself on next load.
+        """
         data = await self._store.async_load()
         if data is None:
             return {"baselines": {}, "daylist": [], "monthlist": [], "yearlist": []}
@@ -53,6 +57,10 @@ class PeriodUsageStore:
         data.setdefault("daylist", [])
         data.setdefault("monthlist", [])
         data.setdefault("yearlist", [])
+
+        data["daylist"] = _dedupe_entries(data["daylist"], "day")
+        data["monthlist"] = _dedupe_entries(data["monthlist"], "month")
+        data["yearlist"] = _dedupe_entries(data["yearlist"], "year")
         return data
 
     async def save(self, data: dict) -> None:
@@ -153,6 +161,48 @@ def _make_delta_entry(
                 baseline.get(cat, 0),
             ))
     return entry
+
+
+def _upsert_entry(
+    lst: list[dict],
+    key_field: str,
+    key_val: str,
+    entry: dict,
+) -> None:
+    """Update the entry matching key_field == key_val, else insert at the front.
+
+    Prevents duplicate entries for the same day/month/year, which could
+    otherwise happen when backfilled history and live archiving both write
+    an entry for the same period.
+    """
+    for idx, item in enumerate(lst):
+        if item.get(key_field) == key_val:
+            lst[idx] = entry
+            return
+    lst.insert(0, entry)
+
+
+def _dedupe_entries(
+    lst: list[dict],
+    key_field: str,
+    reverse: bool = True,
+) -> list[dict]:
+    """Remove duplicate period entries, keeping the first occurrence.
+
+    Also sorts the result by the key field (newest first by default),
+    which normalises the ordering of entries already persisted in storage.
+    """
+    merged: dict[str, dict] = {}
+    for item in lst:
+        key = item.get(key_field)
+        if key is None:
+            continue
+        # Keep the first (i.e. most recently written) entry for each period
+        merged.setdefault(str(key), item)
+    return [
+        merged[k]
+        for k in sorted(merged.keys(), reverse=reverse)
+    ]
 
 
 # ──────────────────────────────────────────────
@@ -445,9 +495,10 @@ def compute_lists(
     Returns (new_stored_data, attributes_dict).
     """
     baselines: dict = stored.get("baselines", {})
-    daylist: list[dict] = list(stored.get("daylist", []))
-    monthlist: list[dict] = list(stored.get("monthlist", []))
-    yearlist: list[dict] = list(stored.get("yearlist", []))
+    # De-duplicate (and order newest-first) whatever was persisted or backfilled
+    daylist: list[dict] = _dedupe_entries(list(stored.get("daylist", [])), "day")
+    monthlist: list[dict] = _dedupe_entries(list(stored.get("monthlist", [])), "month")
+    yearlist: list[dict] = _dedupe_entries(list(stored.get("yearlist", [])), "year")
 
     today = _today_str()
     this_month = _month_str()
@@ -462,7 +513,7 @@ def compute_lists(
             yesterday = _make_delta_entry(
                 "day", daily_base["date"], coord_data, daily_base, include_ink=True,
             )
-            daylist.insert(0, yesterday)
+            _upsert_entry(daylist, "day", daily_base["date"], yesterday)
         # Reset baseline for today
         daily_base = {"date": dkey}
         for k in PERIOD_KEYS:
@@ -473,10 +524,7 @@ def compute_lists(
     today_entry = _make_delta_entry(
         "day", dkey, coord_data, daily_base, include_ink=True,
     )
-    if daylist and daylist[0].get("day") == dkey:
-        daylist[0] = today_entry
-    else:
-        daylist.insert(0, today_entry)
+    _upsert_entry(daylist, "day", dkey, today_entry)
 
     # ── monthly ──
     mkey = this_month
@@ -486,17 +534,14 @@ def compute_lists(
             last_month = _make_delta_entry(
                 "month", monthly_base["month"], coord_data, monthly_base,
             )
-            monthlist.insert(0, last_month)
+            _upsert_entry(monthlist, "month", monthly_base["month"], last_month)
         monthly_base = {"month": mkey}
         for k in PERIOD_KEYS:
             monthly_base[k] = _abs_from_coord(coord_data, k)
         baselines["monthly"] = monthly_base
 
     this_month_entry = _make_delta_entry("month", mkey, coord_data, monthly_base)
-    if monthlist and monthlist[0].get("month") == mkey:
-        monthlist[0] = this_month_entry
-    else:
-        monthlist.insert(0, this_month_entry)
+    _upsert_entry(monthlist, "month", mkey, this_month_entry)
 
     # ── yearly ──
     ykey = this_year
@@ -506,17 +551,14 @@ def compute_lists(
             last_year = _make_delta_entry(
                 "year", yearly_base["year"], coord_data, yearly_base,
             )
-            yearlist.insert(0, last_year)
+            _upsert_entry(yearlist, "year", yearly_base["year"], last_year)
         yearly_base = {"year": ykey}
         for k in PERIOD_KEYS:
             yearly_base[k] = _abs_from_coord(coord_data, k)
         baselines["yearly"] = yearly_base
 
     this_year_entry = _make_delta_entry("year", ykey, coord_data, yearly_base)
-    if yearlist and yearlist[0].get("year") == ykey:
-        yearlist[0] = this_year_entry
-    else:
-        yearlist.insert(0, this_year_entry)
+    _upsert_entry(yearlist, "year", ykey, this_year_entry)
 
     # ── trim ──
     if len(daylist) > daylist_days:
@@ -661,9 +703,14 @@ class PeriodUsageSensor(CoordinatorEntity, SensorEntity):
         to push the updated attributes to HA state machine.
         """
         self._stored = stored
-        self._daylist = stored.get("daylist", [])
-        self._monthlist = stored.get("monthlist", [])
-        self._yearlist = stored.get("yearlist", [])
+        self._daylist = _dedupe_entries(stored.get("daylist", []), "day")
+        self._monthlist = _dedupe_entries(stored.get("monthlist", []), "month")
+        self._yearlist = _dedupe_entries(stored.get("yearlist", []), "year")
+
+        data = self.coordinator.data
+        if data is not None:
+            self._total = _get_total(data)
+            self._lik = _get_lik(data)
 
     def _compute_and_persist(self) -> None:
         """Compute lists + total from current coordinator data, persist if changed."""
